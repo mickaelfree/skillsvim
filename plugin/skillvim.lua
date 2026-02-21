@@ -61,3 +61,10 @@ end, {
   nargs = 0,
   desc = "Toggle hint mode (HINT: clues without answers, for learning)",
 })
+
+vim.api.nvim_create_user_command("SkillWhereToggle", function()
+  require("skillvim.config").toggle_where_mode()
+end, {
+  nargs = 0,
+  desc = "Toggle where mode (WHERE: resources, man pages, docs)",
+})

@@ -31,9 +31,14 @@ function M.edit(instruction, selection_text, range, opts)
   -- Store on_done for cancel
   M._current_on_done = opts.on_done
 
-  -- Hint mode > explain mode: modify instruction accordingly
+  -- Annotation modes (mutually exclusive): where > hint > explain
   local final_instruction = instruction
-  if config.options.hint_mode then
+  if config.options.where_mode then
+    local suffix = config.get_prompt("where_suffix")
+    if suffix and #suffix > 0 then
+      final_instruction = instruction .. "\n\n" .. suffix
+    end
+  elseif config.options.hint_mode then
     local suffix = config.get_prompt("hint_suffix")
     if suffix and #suffix > 0 then
       final_instruction = instruction .. "\n\n" .. suffix
@@ -69,7 +74,9 @@ function M.edit(instruction, selection_text, range, opts)
 
   -- Notify
   local label = "Editing..."
-  if config.options.hint_mode then
+  if config.options.where_mode then
+    label = "Resources..."
+  elseif config.options.hint_mode then
     label = "Hints..."
   elseif config.options.explain_mode then
     label = "Editing (explain)..."
@@ -162,6 +169,8 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
       vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticInfo", i, 0, -1)
     elseif line:match("HINT:") then
       vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticWarn", i, 0, -1)
+    elseif line:match("WHERE:") then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticHint", i, 0, -1)
     end
   end
 
@@ -282,7 +291,7 @@ end
 function M._strip_special_comments(lines)
   local result = {}
   for _, line in ipairs(lines) do
-    if not line:match("SKILLVIM:") and not line:match("HINT:") then
+    if not line:match("SKILLVIM:") and not line:match("HINT:") and not line:match("WHERE:") then
       table.insert(result, line)
     end
   end

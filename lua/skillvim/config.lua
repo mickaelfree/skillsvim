@@ -42,6 +42,7 @@ M.locales = {
     serialize_instruction = "Add serialization and deserialization support to this code. Return only the code with serialization without explanation.",
     explain_suffix = "Additionally, for each significant change, add a comment on the line above using the file's comment syntax, prefixed with SKILLVIM: briefly explaining why this change is better. These comments will be removed after review.",
     hint_suffix = "Do NOT write the solution. Instead, add short hint comments above the relevant lines using the file's comment syntax, prefixed with HINT: giving clues about what could be improved and why, without showing the actual code changes. The user wants to learn and find the solution themselves. Return the original code unchanged with only hint comments added.",
+    where_suffix = "Do NOT modify or explain the code. Instead, add reference comments above the relevant lines using the file's comment syntax, prefixed with WHERE: pointing to specific resources where the user can learn more about the concepts used: man pages (e.g. man 3 printf), official documentation URLs, RFC numbers, relevant CLI tools (e.g. :help in vim), book references, or specification names. Return the original code unchanged with only WHERE: reference comments added.",
   },
   fr = {
     system_prompt = "Tu es un assistant de programmation integre dans Neovim via SkillVim. "
@@ -77,6 +78,7 @@ M.locales = {
     serialize_instruction = "Ajoute le support de serialisation et deserialisation a ce code. Retourne uniquement le code avec serialisation sans explication.",
     explain_suffix = "De plus, pour chaque modification significative, ajoute un commentaire sur la ligne au-dessus avec la syntaxe de commentaire du langage, prefixe par SKILLVIM: expliquant brievement pourquoi ce changement est meilleur. Ces commentaires seront retires apres relecture.",
     hint_suffix = "Ne donne PAS la solution. A la place, ajoute de courts commentaires d'indices au-dessus des lignes concernees avec la syntaxe de commentaire du langage, prefixes par HINT: donnant des pistes sur ce qui pourrait etre ameliore et pourquoi, sans montrer les modifications de code. L'utilisateur veut apprendre et trouver la solution lui-meme. Retourne le code original inchange avec uniquement les commentaires d'indices ajoutes.",
+    where_suffix = "Ne modifie PAS et n'explique PAS le code. A la place, ajoute des commentaires de reference au-dessus des lignes concernees avec la syntaxe de commentaire du langage, prefixes par WHERE: pointant vers des ressources specifiques ou l'utilisateur peut en apprendre plus : pages man (ex: man 3 printf), URLs de documentation officielle, numeros RFC, outils CLI pertinents (ex: :help dans vim), references de livres, ou noms de specifications. Retourne le code original inchange avec uniquement les commentaires WHERE: ajoutes.",
   },
   ja = {
     system_prompt = "あなたはNeovimのSkillVimに統合されたコーディングアシスタントです。"
@@ -112,6 +114,7 @@ M.locales = {
     serialize_instruction = "シリアライゼーションとデシリアライゼーションのサポートを追加してください。説明なしでシリアライゼーション付きのコードのみを返してください。",
     explain_suffix = "また、重要な変更ごとに、その上の行にファイルのコメント構文を使用して SKILLVIM: プレフィックス付きのコメントを追加し、なぜこの変更が良いかを簡潔に説明してください。これらのコメントはレビュー後に削除されます。",
     hint_suffix = "解決策を書かないでください。代わりに、関連する行の上にファイルのコメント構文を使用して HINT: プレフィックス付きの短いヒントコメントを追加し、何が改善できるかのヒントを与えてください。実際のコード変更は示さないでください。ユーザーは自分で解決策を見つけたいと考えています。元のコードを変更せずにヒントコメントのみ追加して返してください。",
+    where_suffix = "コードを変更したり説明したりしないでください。代わりに、関連する行の上にファイルのコメント構文を使用して WHERE: プレフィックス付きの参照コメントを追加し、ユーザーが詳しく学べる具体的なリソースを示してください：manページ（例：man 3 printf）、公式ドキュメントURL、RFC番号、関連CLIツール（例：vimの:help）、書籍の参照、仕様名など。元のコードを変更せずにWHERE:参照コメントのみ追加して返してください。",
   },
 }
 
@@ -125,6 +128,7 @@ M.defaults = {
   system_prompt = nil, -- override; if nil, uses locale default
   explain_mode = false, -- when ON, inline edits include SKILLVIM: comments explaining changes
   hint_mode = false, -- when ON, AI gives hints without the answer (learning mode)
+  where_mode = false, -- when ON, AI points to resources (man, docs, sites)
   skills = {
     paths = {
       vim.fn.expand("~/.config/skillvim/skills"),
@@ -229,24 +233,37 @@ function M._resolve_skills_paths()
   end
 end
 
---- Toggle explain mode on/off
+--- Toggle explain mode on/off (mutually exclusive with hint/where)
 function M.toggle_explain_mode()
   M.options.explain_mode = not M.options.explain_mode
   if M.options.explain_mode then
     M.options.hint_mode = false
+    M.options.where_mode = false
   end
   local state = M.options.explain_mode and "ON" or "OFF"
   vim.notify("[skillvim] Explain mode: " .. state, vim.log.levels.INFO)
 end
 
---- Toggle hint mode on/off (learning mode — hints without answers)
+--- Toggle hint mode on/off (mutually exclusive with explain/where)
 function M.toggle_hint_mode()
   M.options.hint_mode = not M.options.hint_mode
   if M.options.hint_mode then
     M.options.explain_mode = false
+    M.options.where_mode = false
   end
   local state = M.options.hint_mode and "ON" or "OFF"
   vim.notify("[skillvim] Hint mode: " .. state, vim.log.levels.INFO)
+end
+
+--- Toggle where mode on/off (mutually exclusive with explain/hint)
+function M.toggle_where_mode()
+  M.options.where_mode = not M.options.where_mode
+  if M.options.where_mode then
+    M.options.explain_mode = false
+    M.options.hint_mode = false
+  end
+  local state = M.options.where_mode and "ON" or "OFF"
+  vim.notify("[skillvim] Where mode: " .. state, vim.log.levels.INFO)
 end
 
 --- @return string|nil
