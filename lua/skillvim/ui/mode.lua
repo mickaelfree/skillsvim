@@ -49,7 +49,7 @@ M._range = nil   --- @type table|nil  { bufnr, start_line, end_line }
 M._bufnr = nil   --- @type number|nil
 
 -- ────────────────────────────────────────────────────────────
--- Enter / Exit
+-- Enter / Suspend / Resume / Exit
 -- ────────────────────────────────────────────────────────────
 
 --- Enter SKILLVIM mode after capturing text via operator or visual.
@@ -63,45 +63,69 @@ function M.enter(text, range)
   M._range = range
   M._bufnr = range.bufnr
 
-  -- Highlight the captured range
-  if M._bufnr and vim.api.nvim_buf_is_valid(M._bufnr) then
-    for i = range.start_line - 1, range.end_line - 1 do
-      vim.api.nvim_buf_add_highlight(M._bufnr, ns, "Visual", i, 0, -1)
-    end
-  end
-
-  -- Show verb palette
-  M._show_hints()
-
-  -- Set verb keymaps (buffer-local, overrides everything)
-  for key, verb in pairs(M.verbs) do
-    vim.keymap.set("n", key, function()
-      M._dispatch(verb)
-    end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] " .. verb.name })
-  end
-
-  -- Esc also exits
-  vim.keymap.set("n", "<Esc>", function()
-    M.exit()
-  end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] quit" })
+  M._activate_ui()
 end
 
---- Exit SKILLVIM mode: remove keymaps, clear highlights, clear echo.
+--- Suspend mode: remove keymaps + highlights but keep state.
+--- Called before dispatching a verb action.
+function M._suspend()
+  if not M._bufnr or not vim.api.nvim_buf_is_valid(M._bufnr) then return end
+
+  -- Remove verb keymaps
+  for key, _ in pairs(M.verbs) do
+    pcall(vim.keymap.del, "n", key, { buffer = M._bufnr })
+  end
+  pcall(vim.keymap.del, "n", "<Esc>", { buffer = M._bufnr })
+
+  -- Clear highlights
+  vim.api.nvim_buf_clear_namespace(M._bufnr, ns, 0, -1)
+
+  -- Clear echo
+  vim.api.nvim_echo({ { "", "" } }, false, {})
+end
+
+--- Resume mode after an action completes (accept/reject/close).
+--- Re-reads text from buffer, re-highlights, re-sets keymaps.
+--- @param new_range? table  updated range if the action changed the line count
+function M._resume(new_range)
+  if not M._active then return end
+
+  -- Update range if provided (inline edit may change line count)
+  if new_range then
+    M._range = new_range
+  end
+
+  -- Check buffer is still valid
+  if not M._bufnr or not vim.api.nvim_buf_is_valid(M._bufnr) then
+    M.exit()
+    return
+  end
+
+  -- Re-read text from buffer at current range
+  local lines = vim.api.nvim_buf_get_lines(M._bufnr, M._range.start_line - 1, M._range.end_line, false)
+  if #lines > 0 then
+    M._text = table.concat(lines, "\n")
+  end
+
+  M._activate_ui()
+end
+
+--- Exit SKILLVIM mode completely.
 function M.exit()
   if not M._active then return end
 
-  -- Remove all verb keymaps
+  -- Remove keymaps
   if M._bufnr and vim.api.nvim_buf_is_valid(M._bufnr) then
     for key, _ in pairs(M.verbs) do
       pcall(vim.keymap.del, "n", key, { buffer = M._bufnr })
     end
     pcall(vim.keymap.del, "n", "<Esc>", { buffer = M._bufnr })
 
-    -- Clear selection highlight
+    -- Clear highlights
     vim.api.nvim_buf_clear_namespace(M._bufnr, ns, 0, -1)
   end
 
-  -- Clear echo area
+  -- Clear echo
   vim.api.nvim_echo({ { "", "" } }, false, {})
 
   M._active = false
@@ -111,44 +135,85 @@ function M.exit()
 end
 
 -- ────────────────────────────────────────────────────────────
+-- Internal: activate UI (highlight + keymaps + hints)
+-- Used by both enter() and _resume()
+-- ────────────────────────────────────────────────────────────
+
+function M._activate_ui()
+  -- Highlight the captured range
+  if M._bufnr and vim.api.nvim_buf_is_valid(M._bufnr) then
+    vim.api.nvim_buf_clear_namespace(M._bufnr, ns, 0, -1)
+    for i = M._range.start_line - 1, M._range.end_line - 1 do
+      vim.api.nvim_buf_add_highlight(M._bufnr, ns, "Visual", i, 0, -1)
+    end
+  end
+
+  -- Show verb palette
+  M._show_hints()
+
+  -- Set verb keymaps (buffer-local)
+  for key, verb in pairs(M.verbs) do
+    vim.keymap.set("n", key, function()
+      M._dispatch(verb)
+    end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] " .. verb.name })
+  end
+
+  -- Esc exits mode
+  vim.keymap.set("n", "<Esc>", function()
+    M.exit()
+  end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] quit" })
+end
+
+-- ────────────────────────────────────────────────────────────
 -- Verb dispatch
 -- ────────────────────────────────────────────────────────────
 
 --- Dispatch a verb action.
+--- Suspends mode, runs the action, resumes mode when done.
 --- @param verb table { name, prompt_key, output }
 function M._dispatch(verb)
-  -- Capture before exit clears them
   local text = M._text
   local range = M._range
 
-  -- Exit mode first (cleans up keymaps + highlights)
-  M.exit()
-
-  -- Quit: nothing else to do
+  -- Quit: exit mode entirely
   if verb.name == "quit" then
+    M.exit()
     return
   end
 
-  -- Prompt: free-form input → inline edit
+  -- Suspend mode (remove keymaps/highlights, keep state)
+  M._suspend()
+
+  -- Callback: resumes mode after the action completes
+  local function on_done(new_range)
+    vim.schedule(function()
+      M._resume(new_range)
+    end)
+  end
+
+  -- Prompt: free-form input
   if verb.name == "prompt" then
     local instruction = vim.fn.input("SkillVim > ")
     if not instruction or #vim.trim(instruction) == 0 then
+      -- Cancelled: resume immediately
+      M._resume()
       return
     end
-    require("skillvim.ui.inline").edit(instruction, text, range)
+    require("skillvim.ui.inline").edit(instruction, text, range, { on_done = on_done })
     return
   end
 
-  -- Standard verb: get localized prompt and dispatch
+  -- Standard verb
   local prompt = require("skillvim.config").get_prompt(verb.prompt_key)
 
   if verb.output == "inline" then
-    require("skillvim.ui.inline").edit(prompt, text, range)
+    require("skillvim.ui.inline").edit(prompt, text, range, { on_done = on_done })
   else
     require("skillvim.ui.float").show_response(prompt, {
       include_buffer = true,
       include_selection = text,
       selection_range = range,
+      on_done = on_done,
     })
   end
 end
@@ -157,7 +222,6 @@ end
 -- Verb palette display
 -- ────────────────────────────────────────────────────────────
 
---- Show the verb palette in the echo area.
 function M._show_hints()
   local chunks = {
     { "-- SKILLVIM --  ", "ModeMsg" },

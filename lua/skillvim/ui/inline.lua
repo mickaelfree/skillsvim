@@ -5,14 +5,16 @@ local ns = vim.api.nvim_create_namespace("skillvim_inline")
 --- @type vim.SystemObj|nil
 M._current_handle = nil
 
---- @type number[]  keymaps we set temporarily (autocmd ids)
-M._cleanup_ids = {}
+--- @type function|nil  callback to resume mode after action
+M._current_on_done = nil
 
 --- Edit text inline: stream the AI response and replace the selection directly in the buffer.
 --- @param instruction string
 --- @param selection_text string
 --- @param range table { bufnr, start_line, end_line }
-function M.edit(instruction, selection_text, range)
+--- @param opts? table { on_done?: fun(new_range?: table) }
+function M.edit(instruction, selection_text, range, opts)
+  opts = opts or {}
   local client = require("skillvim.api.client")
   local context = require("skillvim.context")
   local config = require("skillvim.config")
@@ -21,8 +23,12 @@ function M.edit(instruction, selection_text, range)
   local bufnr = range.bufnr
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     vim.notify("[skillvim] Invalid buffer.", vim.log.levels.WARN)
+    if opts.on_done then opts.on_done(range) end
     return
   end
+
+  -- Store on_done for cancel
+  M._current_on_done = opts.on_done
 
   -- Save original lines for undo/reject
   local original_lines = vim.api.nvim_buf_get_lines(bufnr, range.start_line - 1, range.end_line, false)
@@ -69,6 +75,7 @@ function M.edit(instruction, selection_text, range)
     on_complete = function(response)
       vim.schedule(function()
         M._current_handle = nil
+        M._current_on_done = nil
         vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
         -- Extract code from response
@@ -76,6 +83,7 @@ function M.edit(instruction, selection_text, range)
         if not code or #vim.trim(code) == 0 then
           vim.notify("[skillvim] No code in response.", vim.log.levels.WARN)
           statusline.set_state("idle")
+          if opts.on_done then opts.on_done(range) end
           return
         end
 
@@ -95,15 +103,18 @@ function M.edit(instruction, selection_text, range)
           selection_text = selection_text,
           range = range,
           usage = response and response.usage or nil,
+          on_done = opts.on_done,
         })
       end)
     end,
     on_error = function(err)
       vim.schedule(function()
         M._current_handle = nil
+        M._current_on_done = nil
         vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
         vim.notify("[skillvim] Error: " .. tostring(err), vim.log.levels.ERROR)
         statusline.set_state("error")
+        if opts.on_done then opts.on_done(range) end
       end)
     end,
   })
@@ -114,7 +125,7 @@ end
 --- @param start_idx number  0-indexed start of new code
 --- @param end_idx number    0-indexed end of new code (exclusive)
 --- @param original_lines string[]  original code to restore on reject
---- @param meta table  { instruction, selection_text, range, usage }
+--- @param meta table  { instruction, selection_text, range, usage, on_done? }
 function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
   -- Highlight the new code with DiffAdd
   for i = start_idx, end_idx - 1 do
@@ -151,36 +162,44 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
     pcall(vim.keymap.del, "n", "<Esc>", { buffer = bufnr })
   end
 
-  -- [a] accept — keep the new code
+  -- [a] accept — keep the new code, resume mode with updated range
   vim.keymap.set("n", "a", function()
     cleanup()
     vim.notify("[skillvim] Edit accepted.", vim.log.levels.INFO)
+    if meta.on_done then
+      local new_range = {
+        bufnr = bufnr,
+        start_line = start_idx + 1,
+        end_line = start_idx + (end_idx - start_idx),
+      }
+      meta.on_done(new_range)
+    end
   end, { buffer = bufnr, nowait = true, desc = "[SkillVim] Accept edit" })
 
-  -- [q] / <Esc> reject — restore original code
+  -- [q] / <Esc> reject — restore original code, resume mode with original range
   local function reject()
     cleanup()
-    -- Restore original lines
     local current_end = start_idx + (end_idx - start_idx)
     vim.api.nvim_buf_set_lines(bufnr, start_idx, current_end, false, original_lines)
     vim.notify("[skillvim] Edit rejected.", vim.log.levels.INFO)
+    if meta.on_done then
+      meta.on_done(meta.range)
+    end
   end
 
   vim.keymap.set("n", "q", reject, { buffer = bufnr, nowait = true, desc = "[SkillVim] Reject edit" })
   vim.keymap.set("n", "<Esc>", reject, { buffer = bufnr, nowait = true, desc = "[SkillVim] Reject edit" })
 
-  -- [r] retry — restore original, re-send with different approach
+  -- [r] retry — restore original, re-send (on_done passed through to next cycle)
   vim.keymap.set("n", "r", function()
     cleanup()
-    -- Restore original lines first
     local current_end = start_idx + (end_idx - start_idx)
     vim.api.nvim_buf_set_lines(bufnr, start_idx, current_end, false, original_lines)
 
-    -- Re-send with retry context
     local retry_instruction = require("skillvim.config").get_prompt("retry_instruction")
       .. " "
       .. meta.instruction
-    M.edit(retry_instruction, meta.selection_text, meta.range)
+    M.edit(retry_instruction, meta.selection_text, meta.range, { on_done = meta.on_done })
   end, { buffer = bufnr, nowait = true, desc = "[SkillVim] Retry edit" })
 end
 
@@ -188,7 +207,12 @@ end
 function M.cancel()
   if M._current_handle then
     require("skillvim.api.client").cancel(M._current_handle)
+    local on_done = M._current_on_done
+    local range_backup = nil -- no range info available here
+
     M._current_handle = nil
+    M._current_on_done = nil
+
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
@@ -196,6 +220,11 @@ function M.cancel()
     end
     require("skillvim.ui.statusline").set_state("idle")
     vim.notify("[skillvim] Edit cancelled.", vim.log.levels.INFO)
+
+    -- Resume mode if we were in one
+    if on_done then
+      on_done(nil)
+    end
   end
 end
 
@@ -204,9 +233,8 @@ end
 -- ────────────────────────────────────────────────────────────
 
 --- Detect the base indentation (smallest leading whitespace) of a set of lines.
---- Ignores blank lines.
 --- @param lines string[]
---- @return string  the common indent prefix (spaces/tabs)
+--- @return string
 function M._detect_indent(lines)
   local min_indent = nil
   for _, line in ipairs(lines) do
@@ -221,7 +249,6 @@ function M._detect_indent(lines)
 end
 
 --- Re-indent code lines to match a target base indent.
---- Strips the code's own base indent and prepends the target.
 --- @param lines string[]
 --- @param target_indent string
 --- @return string[]
@@ -232,10 +259,8 @@ function M._reindent(lines, target_indent)
   local result = {}
   for _, line in ipairs(lines) do
     if #vim.trim(line) == 0 then
-      -- Keep blank lines blank
       table.insert(result, "")
     else
-      -- Strip original indent, add target indent
       local stripped = line:sub(strip_len + 1)
       table.insert(result, target_indent .. stripped)
     end
@@ -248,9 +273,7 @@ end
 -- Code extraction
 -- ────────────────────────────────────────────────────────────
 
---- Extract code from AI response.
---- Looks for fenced code blocks (```), returns the last one.
---- If none found, returns the raw response.
+--- Extract code from AI response (last fenced block, or raw).
 --- @param response string
 --- @return string
 function M._extract_code(response)

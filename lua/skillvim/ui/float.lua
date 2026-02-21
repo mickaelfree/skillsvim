@@ -47,7 +47,7 @@ end
 
 --- Show a streaming response in a floating window
 --- @param prompt string
---- @param opts? { include_buffer: boolean, include_selection: string|nil }
+--- @param opts? { include_buffer: boolean, include_selection: string|nil, on_done: fun()|nil }
 function M.show_response(prompt, opts)
   opts = opts or { include_buffer = true }
   local Popup = require("nui.popup")
@@ -60,6 +60,20 @@ function M.show_response(prompt, opts)
   M._state.last_prompt = prompt
   M._state.last_opts = opts
   M._state.selection_range = opts.selection_range or nil
+
+  -- on_done callback for mode resume (guard against double-call)
+  local on_done = opts.on_done
+  local done_called = false
+  local retrying = false
+
+  local function call_done()
+    if on_done and not done_called and not retrying then
+      done_called = true
+      vim.schedule(function()
+        on_done(nil)
+      end)
+    end
+  end
 
   local ctx = context.build(prompt, opts)
 
@@ -208,11 +222,9 @@ function M.show_response(prompt, opts)
     local sr = M._state.selection_range
 
     if sr and sr.bufnr and vim.api.nvim_buf_is_valid(sr.bufnr) then
-      -- Replace the original selection in the code buffer
       vim.api.nvim_buf_set_lines(sr.bufnr, sr.start_line - 1, sr.end_line, false, code_lines)
       vim.notify("[skillvim] Code applied (replaced selection).", vim.log.levels.INFO)
     else
-      -- Fallback: append to the code buffer
       local ctx_mod = require("skillvim.context")
       local bufnr = ctx_mod._get_code_bufnr()
       if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
@@ -226,20 +238,22 @@ function M.show_response(prompt, opts)
     popup:unmount()
   end)
 
-  -- r = retry with different approach
+  -- r = retry with different approach (pass on_done through)
   popup:map("n", "r", function()
+    retrying = true
     popup:unmount()
     if M._state.last_prompt and M._state.last_opts then
       local retry_opts = vim.tbl_deep_extend("force", {}, M._state.last_opts)
-      -- Include the previous response so the model knows what to change
       if M._state.last_response and #M._state.last_response > 0 then
         retry_opts.previous_response = M._state.last_response
       end
+      -- Pass on_done through to the retry
+      retry_opts.on_done = on_done
       M.show_response(M._state.last_prompt, retry_opts)
     end
   end)
 
-  -- q / Esc = close
+  -- q / Esc = close → resume mode
   popup:map("n", "q", function()
     popup:unmount()
   end)
@@ -247,12 +261,13 @@ function M.show_response(prompt, opts)
     popup:unmount()
   end)
 
-  -- Cancel on popup close
+  -- Cancel on popup close → resume mode
   popup:on("BufWinLeave", function()
     if handle then
       client.cancel(handle)
     end
     statusline.set_state("idle")
+    call_done()
   end)
 
   -- Cancel keybinding
