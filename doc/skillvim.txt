@@ -1,0 +1,170 @@
+*skillvim.txt*  Neovim AI plugin with skills.sh integration
+
+==============================================================================
+CONTENTS                                                    *skillvim-contents*
+
+  1. Introduction .................. |skillvim-intro|
+  2. Installation .................. |skillvim-install|
+  3. Configuration ................. |skillvim-config|
+  4. Commands ...................... |skillvim-commands|
+  5. Keymaps ....................... |skillvim-keymaps|
+  6. Skills ........................ |skillvim-skills|
+  7. Statusline .................... |skillvim-statusline|
+
+==============================================================================
+1. INTRODUCTION                                                *skillvim-intro*
+
+SkillVim is the first Neovim plugin natively compatible with the skills.sh
+ecosystem. It connects Neovim to the Anthropic Claude API with streaming
+support, while giving access to 48,000+ Skills from the Agent Skills Directory.
+
+Features:
+- Anthropic Claude API with native SSE streaming
+- skills.sh compatible skill resolution (cross-compatible with Claude Code,
+  Cursor, Codex, GitHub Copilot, and 17+ other agents)
+- Persistent chat interface with conversation history
+- Intelligent skill auto-resolution based on prompt and filetype
+- Visual selection editing with AI
+- Lualine statusline component
+
+==============================================================================
+2. INSTALLATION                                              *skillvim-install*
+
+Requirements:
+- Neovim >= 0.10.0
+- plenary.nvim
+- nui.nvim
+- curl (system)
+- ANTHROPIC_API_KEY environment variable
+
+Using lazy.nvim: >lua
+  {
+    "username/skillvim.nvim",
+    dependencies = { "nvim-lua/plenary.nvim", "MunifTanjim/nui.nvim" },
+    cmd = { "SkillAsk", "SkillEdit", "SkillChat", "SkillList" },
+    config = function()
+      require("skillvim").setup()
+    end,
+  }
+<
+
+Install skills: >bash
+  npx skills add owner/repo -a skillvim -g
+<
+
+==============================================================================
+3. CONFIGURATION                                              *skillvim-config*
+
+Call `require("skillvim").setup(opts)` with a table of options: >lua
+
+  require("skillvim").setup({
+    api_key = nil,  -- defaults to $ANTHROPIC_API_KEY; can be a function
+    model = "claude-sonnet-4-20250514",
+    max_tokens = 4096,
+    skills = {
+      paths = { "~/.config/skillvim/skills" },
+      project_dir = ".skillvim/skills",
+      auto_resolve = true,
+      max_active = 5,
+    },
+    chat = {
+      position = "right",  -- "right", "bottom"
+      width = 80,
+      height = 20,
+      border = "rounded",
+    },
+    keymaps = {
+      enabled = true,
+      ask = "<leader>sa",
+      edit = "<leader>se",
+      chat = "<leader>sc",
+      list = "<leader>sl",
+    },
+    statusline = {
+      enabled = true,
+      icons = { idle = "SK", streaming = "SK...", error = "SK!" },
+    },
+  })
+<
+
+==============================================================================
+4. COMMANDS                                                 *skillvim-commands*
+
+                                                                    *:SkillAsk*
+:SkillAsk {prompt}      Ask the AI a question. Skills are auto-resolved based
+                        on the prompt content and current filetype. Response
+                        appears in a floating window.
+
+                                                                   *:SkillEdit*
+:'<,'>SkillEdit [instr] Edit the visual selection using AI. An optional
+                        instruction can be provided. Default instruction:
+                        "Improve this code."
+
+                                                                   *:SkillChat*
+:SkillChat [message]    Toggle the persistent chat split. An optional initial
+                        message can be provided. Inside the chat:
+                        - Press <CR> or i to enter a message
+                        - Press q to close
+                        - Press <C-c> to cancel streaming
+                        - Press <C-l> to clear history
+
+                                                                   *:SkillList*
+:SkillList              Show all installed skills in a floating popup.
+
+==============================================================================
+5. KEYMAPS                                                   *skillvim-keymaps*
+
+Default keymaps (can be disabled via config):
+
+  <leader>sa    Ask AI (normal mode, opens input prompt)
+  <leader>se    Edit selection (visual mode)
+  <leader>sc    Toggle chat (normal mode)
+  <leader>sl    List skills (normal mode)
+
+==============================================================================
+6. SKILLS                                                    *skillvim-skills*
+
+Skills are loaded from two locations:
+  - Global: ~/.config/skillvim/skills/
+  - Project: .skillvim/skills/ (relative to cwd)
+
+Each skill is a directory containing a SKILL.md file with YAML frontmatter: >yaml
+  ---
+  name: my-skill
+  description: "Description and activation triggers"
+  ---
+
+  # Skill Content
+  Instructions for the AI...
+<
+
+Install skills from skills.sh: >bash
+  npx skills add owner/repo -a skillvim -g    # global
+  npx skills add owner/repo -a skillvim       # project
+<
+
+Skills are auto-resolved based on:
+  1. Metadata trigger matches
+  2. File type matching via globs
+  3. Skill name in the prompt
+  4. Keyword overlap with description
+
+==============================================================================
+7. STATUSLINE                                            *skillvim-statusline*
+
+Add to lualine: >lua
+  require("lualine").setup({
+    sections = {
+      lualine_x = {
+        require("skillvim.ui.statusline").lualine,
+      }
+    }
+  })
+<
+
+Or use the function directly: >lua
+  require("skillvim").statusline()
+<
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
