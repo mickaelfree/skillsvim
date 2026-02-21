@@ -39,6 +39,7 @@ M.locales = {
     wrap_instruction = "Wrap this code with appropriate error handling, logging, or middleware. Return only the wrapped code without explanation.",
     extract_instruction = "Extract reusable components, functions, or modules from this code. Return only the extracted code without explanation.",
     serialize_instruction = "Add serialization and deserialization support to this code. Return only the code with serialization without explanation.",
+    explain_suffix = "Additionally, for each significant change, add a comment on the line above using the file's comment syntax, prefixed with SKILLVIM: briefly explaining why this change is better. These comments will be removed after review.",
   },
   fr = {
     system_prompt = "Tu es un assistant de programmation integre dans Neovim via SkillVim. "
@@ -71,6 +72,7 @@ M.locales = {
     wrap_instruction = "Enveloppe ce code avec de la gestion d'erreur, du logging ou du middleware. Retourne uniquement le code enveloppe sans explication.",
     extract_instruction = "Extrais les composants, fonctions ou modules reutilisables de ce code. Retourne uniquement le code extrait sans explication.",
     serialize_instruction = "Ajoute le support de serialisation et deserialisation a ce code. Retourne uniquement le code avec serialisation sans explication.",
+    explain_suffix = "De plus, pour chaque modification significative, ajoute un commentaire sur la ligne au-dessus avec la syntaxe de commentaire du langage, prefixe par SKILLVIM: expliquant brievement pourquoi ce changement est meilleur. Ces commentaires seront retires apres relecture.",
   },
   ja = {
     system_prompt = "あなたはNeovimのSkillVimに統合されたコーディングアシスタントです。"
@@ -103,6 +105,7 @@ M.locales = {
     wrap_instruction = "適切なエラーハンドリング、ロギング、ミドルウェアでこのコードをラップしてください。説明なしでラップしたコードのみを返してください。",
     extract_instruction = "再利用可能なコンポーネント、関数、モジュールを抽出してください。説明なしで抽出したコードのみを返してください。",
     serialize_instruction = "シリアライゼーションとデシリアライゼーションのサポートを追加してください。説明なしでシリアライゼーション付きのコードのみを返してください。",
+    explain_suffix = "また、重要な変更ごとに、その上の行にファイルのコメント構文を使用して SKILLVIM: プレフィックス付きのコメントを追加し、なぜこの変更が良いかを簡潔に説明してください。これらのコメントはレビュー後に削除されます。",
   },
 }
 
@@ -114,6 +117,7 @@ M.defaults = {
   temperature = nil,
   locale = "en", -- "en", "fr", "ja", or custom table
   system_prompt = nil, -- override; if nil, uses locale default
+  explain_mode = false, -- when ON, inline edits include SKILLVIM: comments explaining changes
   skills = {
     paths = {
       vim.fn.expand("~/.config/skillvim/skills"),
@@ -216,6 +220,13 @@ function M._resolve_skills_paths()
       table.insert(M.options.skills.paths, project_path)
     end
   end
+end
+
+--- Toggle explain mode on/off
+function M.toggle_explain_mode()
+  M.options.explain_mode = not M.options.explain_mode
+  local state = M.options.explain_mode and "ON" or "OFF"
+  vim.notify("[skillvim] Explain mode: " .. state, vim.log.levels.INFO)
 end
 
 --- @return string|nil

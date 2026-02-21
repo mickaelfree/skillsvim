@@ -47,3 +47,10 @@ end, {
   nargs = 0,
   desc = "Explain visual selection",
 })
+
+vim.api.nvim_create_user_command("SkillExplainToggle", function()
+  require("skillvim.config").toggle_explain_mode()
+end, {
+  nargs = 0,
+  desc = "Toggle explain mode (SKILLVIM: comments on inline edits)",
+})

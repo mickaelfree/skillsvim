@@ -1,6 +1,7 @@
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("skillvim_inline")
+local ns_explain = vim.api.nvim_create_namespace("skillvim_explain")
 
 --- @type vim.SystemObj|nil
 M._current_handle = nil
@@ -30,6 +31,15 @@ function M.edit(instruction, selection_text, range, opts)
   -- Store on_done for cancel
   M._current_on_done = opts.on_done
 
+  -- If explain mode is ON, append explain suffix to instruction
+  local final_instruction = instruction
+  if config.options.explain_mode then
+    local suffix = config.get_prompt("explain_suffix")
+    if suffix and #suffix > 0 then
+      final_instruction = instruction .. "\n\n" .. suffix
+    end
+  end
+
   -- Save original lines for undo/reject
   local original_lines = vim.api.nvim_buf_get_lines(bufnr, range.start_line - 1, range.end_line, false)
 
@@ -47,13 +57,14 @@ function M.edit(instruction, selection_text, range, opts)
   })
 
   -- Build context
-  local ctx = context.build(instruction, {
+  local ctx = context.build(final_instruction, {
     include_buffer = true,
     include_selection = selection_text,
   })
 
   -- Notify
-  vim.notify(string.format("SkillVim: Editing with %s...", config.options.model), vim.log.levels.INFO)
+  local label = config.options.explain_mode and "Editing (explain)..." or "Editing..."
+  vim.notify(string.format("SkillVim: %s with %s", label, config.options.model), vim.log.levels.INFO)
   statusline.set_state("streaming")
 
   local accumulated = ""
@@ -127,9 +138,22 @@ end
 --- @param original_lines string[]  original code to restore on reject
 --- @param meta table  { instruction, selection_text, range, usage, on_done? }
 function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
+  local config = require("skillvim.config")
+
   -- Highlight the new code with DiffAdd
   for i = start_idx, end_idx - 1 do
     vim.api.nvim_buf_add_highlight(bufnr, ns, "DiffAdd", i, 0, -1)
+  end
+
+  -- If explain mode, highlight SKILLVIM: comment lines distinctly
+  if config.options.explain_mode then
+    for i = start_idx, end_idx - 1 do
+      local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+      if line:match("SKILLVIM:") then
+        -- Override with a distinct highlight
+        vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticInfo", i, 0, -1)
+      end
+    end
   end
 
   -- Virtual text hint on first line
@@ -156,27 +180,44 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
   -- Cleanup function: remove highlights + temp keymaps
   local function cleanup()
     vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(bufnr, ns_explain, 0, -1)
     pcall(vim.keymap.del, "n", "a", { buffer = bufnr })
     pcall(vim.keymap.del, "n", "r", { buffer = bufnr })
     pcall(vim.keymap.del, "n", "q", { buffer = bufnr })
     pcall(vim.keymap.del, "n", "<Esc>", { buffer = bufnr })
   end
 
-  -- [a] accept — keep the new code, resume mode with updated range
+  -- [a] accept — keep the new code, strip SKILLVIM: comments if explain mode
   vim.keymap.set("n", "a", function()
     cleanup()
-    vim.notify("[skillvim] Edit accepted.", vim.log.levels.INFO)
-    if meta.on_done then
-      local new_range = {
-        bufnr = bufnr,
-        start_line = start_idx + 1,
-        end_line = start_idx + (end_idx - start_idx),
-      }
-      meta.on_done(new_range)
+
+    if config.options.explain_mode then
+      -- Strip SKILLVIM: comment lines before finalizing
+      local current_lines = vim.api.nvim_buf_get_lines(bufnr, start_idx, end_idx, false)
+      local stripped = M._strip_explain_comments(current_lines)
+      vim.api.nvim_buf_set_lines(bufnr, start_idx, end_idx, false, stripped)
+      vim.notify("[skillvim] Edit accepted (explain comments removed).", vim.log.levels.INFO)
+
+      if meta.on_done then
+        meta.on_done({
+          bufnr = bufnr,
+          start_line = start_idx + 1,
+          end_line = start_idx + #stripped,
+        })
+      end
+    else
+      vim.notify("[skillvim] Edit accepted.", vim.log.levels.INFO)
+      if meta.on_done then
+        meta.on_done({
+          bufnr = bufnr,
+          start_line = start_idx + 1,
+          end_line = start_idx + (end_idx - start_idx),
+        })
+      end
     end
   end, { buffer = bufnr, nowait = true, desc = "[SkillVim] Accept edit" })
 
-  -- [q] / <Esc> reject — restore original code, resume mode with original range
+  -- [q] / <Esc> reject — restore original code
   local function reject()
     cleanup()
     local current_end = start_idx + (end_idx - start_idx)
@@ -190,7 +231,7 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
   vim.keymap.set("n", "q", reject, { buffer = bufnr, nowait = true, desc = "[SkillVim] Reject edit" })
   vim.keymap.set("n", "<Esc>", reject, { buffer = bufnr, nowait = true, desc = "[SkillVim] Reject edit" })
 
-  -- [r] retry — restore original, re-send (on_done passed through to next cycle)
+  -- [r] retry — restore original, re-send (on_done passed through)
   vim.keymap.set("n", "r", function()
     cleanup()
     local current_end = start_idx + (end_idx - start_idx)
@@ -208,7 +249,6 @@ function M.cancel()
   if M._current_handle then
     require("skillvim.api.client").cancel(M._current_handle)
     local on_done = M._current_on_done
-    local range_backup = nil -- no range info available here
 
     M._current_handle = nil
     M._current_on_done = nil
@@ -216,16 +256,33 @@ function M.cancel()
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+        vim.api.nvim_buf_clear_namespace(buf, ns_explain, 0, -1)
       end
     end
     require("skillvim.ui.statusline").set_state("idle")
     vim.notify("[skillvim] Edit cancelled.", vim.log.levels.INFO)
 
-    -- Resume mode if we were in one
     if on_done then
       on_done(nil)
     end
   end
+end
+
+-- ────────────────────────────────────────────────────────────
+-- Explain mode helpers
+-- ────────────────────────────────────────────────────────────
+
+--- Strip lines containing SKILLVIM: explain comments.
+--- @param lines string[]
+--- @return string[]
+function M._strip_explain_comments(lines)
+  local result = {}
+  for _, line in ipairs(lines) do
+    if not line:match("SKILLVIM:") then
+      table.insert(result, line)
+    end
+  end
+  return result
 end
 
 -- ────────────────────────────────────────────────────────────
