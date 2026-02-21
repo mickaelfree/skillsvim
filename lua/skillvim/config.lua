@@ -41,6 +41,7 @@ M.locales = {
     extract_instruction = "Extract reusable components, functions, or modules from this code. Return only the extracted code without explanation.",
     serialize_instruction = "Add serialization and deserialization support to this code. Return only the code with serialization without explanation.",
     explain_suffix = "Additionally, for each significant change, add a comment on the line above using the file's comment syntax, prefixed with SKILLVIM: briefly explaining why this change is better. These comments will be removed after review.",
+    hint_suffix = "Do NOT write the solution. Instead, add short hint comments above the relevant lines using the file's comment syntax, prefixed with HINT: giving clues about what could be improved and why, without showing the actual code changes. The user wants to learn and find the solution themselves. Return the original code unchanged with only hint comments added.",
   },
   fr = {
     system_prompt = "Tu es un assistant de programmation integre dans Neovim via SkillVim. "
@@ -75,6 +76,7 @@ M.locales = {
     extract_instruction = "Extrais les composants, fonctions ou modules reutilisables de ce code. Retourne uniquement le code extrait sans explication.",
     serialize_instruction = "Ajoute le support de serialisation et deserialisation a ce code. Retourne uniquement le code avec serialisation sans explication.",
     explain_suffix = "De plus, pour chaque modification significative, ajoute un commentaire sur la ligne au-dessus avec la syntaxe de commentaire du langage, prefixe par SKILLVIM: expliquant brievement pourquoi ce changement est meilleur. Ces commentaires seront retires apres relecture.",
+    hint_suffix = "Ne donne PAS la solution. A la place, ajoute de courts commentaires d'indices au-dessus des lignes concernees avec la syntaxe de commentaire du langage, prefixes par HINT: donnant des pistes sur ce qui pourrait etre ameliore et pourquoi, sans montrer les modifications de code. L'utilisateur veut apprendre et trouver la solution lui-meme. Retourne le code original inchange avec uniquement les commentaires d'indices ajoutes.",
   },
   ja = {
     system_prompt = "あなたはNeovimのSkillVimに統合されたコーディングアシスタントです。"
@@ -109,6 +111,7 @@ M.locales = {
     extract_instruction = "再利用可能なコンポーネント、関数、モジュールを抽出してください。説明なしで抽出したコードのみを返してください。",
     serialize_instruction = "シリアライゼーションとデシリアライゼーションのサポートを追加してください。説明なしでシリアライゼーション付きのコードのみを返してください。",
     explain_suffix = "また、重要な変更ごとに、その上の行にファイルのコメント構文を使用して SKILLVIM: プレフィックス付きのコメントを追加し、なぜこの変更が良いかを簡潔に説明してください。これらのコメントはレビュー後に削除されます。",
+    hint_suffix = "解決策を書かないでください。代わりに、関連する行の上にファイルのコメント構文を使用して HINT: プレフィックス付きの短いヒントコメントを追加し、何が改善できるかのヒントを与えてください。実際のコード変更は示さないでください。ユーザーは自分で解決策を見つけたいと考えています。元のコードを変更せずにヒントコメントのみ追加して返してください。",
   },
 }
 
@@ -121,6 +124,7 @@ M.defaults = {
   locale = "en", -- "en", "fr", "ja", or custom table
   system_prompt = nil, -- override; if nil, uses locale default
   explain_mode = false, -- when ON, inline edits include SKILLVIM: comments explaining changes
+  hint_mode = false, -- when ON, AI gives hints without the answer (learning mode)
   skills = {
     paths = {
       vim.fn.expand("~/.config/skillvim/skills"),
@@ -228,8 +232,21 @@ end
 --- Toggle explain mode on/off
 function M.toggle_explain_mode()
   M.options.explain_mode = not M.options.explain_mode
+  if M.options.explain_mode then
+    M.options.hint_mode = false
+  end
   local state = M.options.explain_mode and "ON" or "OFF"
   vim.notify("[skillvim] Explain mode: " .. state, vim.log.levels.INFO)
+end
+
+--- Toggle hint mode on/off (learning mode — hints without answers)
+function M.toggle_hint_mode()
+  M.options.hint_mode = not M.options.hint_mode
+  if M.options.hint_mode then
+    M.options.explain_mode = false
+  end
+  local state = M.options.hint_mode and "ON" or "OFF"
+  vim.notify("[skillvim] Hint mode: " .. state, vim.log.levels.INFO)
 end
 
 --- @return string|nil

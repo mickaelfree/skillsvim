@@ -31,9 +31,14 @@ function M.edit(instruction, selection_text, range, opts)
   -- Store on_done for cancel
   M._current_on_done = opts.on_done
 
-  -- If explain mode is ON, append explain suffix to instruction
+  -- Hint mode > explain mode: modify instruction accordingly
   local final_instruction = instruction
-  if config.options.explain_mode then
+  if config.options.hint_mode then
+    local suffix = config.get_prompt("hint_suffix")
+    if suffix and #suffix > 0 then
+      final_instruction = instruction .. "\n\n" .. suffix
+    end
+  elseif config.options.explain_mode then
     local suffix = config.get_prompt("explain_suffix")
     if suffix and #suffix > 0 then
       final_instruction = instruction .. "\n\n" .. suffix
@@ -63,7 +68,12 @@ function M.edit(instruction, selection_text, range, opts)
   })
 
   -- Notify
-  local label = config.options.explain_mode and "Editing (explain)..." or "Editing..."
+  local label = "Editing..."
+  if config.options.hint_mode then
+    label = "Hints..."
+  elseif config.options.explain_mode then
+    label = "Editing (explain)..."
+  end
   vim.notify(string.format("SkillVim: %s with %s", label, config.options.model), vim.log.levels.INFO)
   statusline.set_state("streaming")
 
@@ -145,14 +155,13 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
     vim.api.nvim_buf_add_highlight(bufnr, ns, "DiffAdd", i, 0, -1)
   end
 
-  -- If explain mode, highlight SKILLVIM: comment lines distinctly
-  if config.options.explain_mode then
-    for i = start_idx, end_idx - 1 do
-      local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
-      if line:match("SKILLVIM:") then
-        -- Override with a distinct highlight
-        vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticInfo", i, 0, -1)
-      end
+  -- Highlight special comment lines distinctly (explain or hint mode)
+  for i = start_idx, end_idx - 1 do
+    local line = vim.api.nvim_buf_get_lines(bufnr, i, i + 1, false)[1] or ""
+    if line:match("SKILLVIM:") then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticInfo", i, 0, -1)
+    elseif line:match("HINT:") then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_explain, "DiagnosticWarn", i, 0, -1)
     end
   end
 
@@ -191,29 +200,24 @@ function M._show_confirmation(bufnr, start_idx, end_idx, original_lines, meta)
   vim.keymap.set("n", "a", function()
     cleanup()
 
-    if config.options.explain_mode then
-      -- Strip SKILLVIM: comment lines before finalizing
-      local current_lines = vim.api.nvim_buf_get_lines(bufnr, start_idx, end_idx, false)
-      local stripped = M._strip_explain_comments(current_lines)
-      vim.api.nvim_buf_set_lines(bufnr, start_idx, end_idx, false, stripped)
-      vim.notify("[skillvim] Edit accepted (explain comments removed).", vim.log.levels.INFO)
+    -- Strip special comments if explain or hint mode was active
+    local current_lines = vim.api.nvim_buf_get_lines(bufnr, start_idx, end_idx, false)
+    local stripped = M._strip_special_comments(current_lines)
+    local did_strip = #stripped < #current_lines
 
-      if meta.on_done then
-        meta.on_done({
-          bufnr = bufnr,
-          start_line = start_idx + 1,
-          end_line = start_idx + #stripped,
-        })
-      end
+    if did_strip then
+      vim.api.nvim_buf_set_lines(bufnr, start_idx, end_idx, false, stripped)
+      vim.notify("[skillvim] Edit accepted (annotations removed).", vim.log.levels.INFO)
     else
       vim.notify("[skillvim] Edit accepted.", vim.log.levels.INFO)
-      if meta.on_done then
-        meta.on_done({
-          bufnr = bufnr,
-          start_line = start_idx + 1,
-          end_line = start_idx + (end_idx - start_idx),
-        })
-      end
+    end
+
+    if meta.on_done then
+      meta.on_done({
+        bufnr = bufnr,
+        start_line = start_idx + 1,
+        end_line = start_idx + #stripped,
+      })
     end
   end, { buffer = bufnr, nowait = true, desc = "[SkillVim] Accept edit" })
 
@@ -272,13 +276,13 @@ end
 -- Explain mode helpers
 -- ────────────────────────────────────────────────────────────
 
---- Strip lines containing SKILLVIM: explain comments.
+--- Strip lines containing SKILLVIM: or HINT: annotation comments.
 --- @param lines string[]
 --- @return string[]
-function M._strip_explain_comments(lines)
+function M._strip_special_comments(lines)
   local result = {}
   for _, line in ipairs(lines) do
-    if not line:match("SKILLVIM:") then
+    if not line:match("SKILLVIM:") and not line:match("HINT:") then
       table.insert(result, line)
     end
   end

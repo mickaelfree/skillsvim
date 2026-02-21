@@ -121,6 +121,7 @@ function M.exit()
     end
     pcall(vim.keymap.del, "n", "<Esc>", { buffer = M._bufnr })
     pcall(vim.keymap.del, "n", "!", { buffer = M._bufnr })
+    pcall(vim.keymap.del, "n", "?", { buffer = M._bufnr })
 
     -- Clear highlights
     vim.api.nvim_buf_clear_namespace(M._bufnr, ns, 0, -1)
@@ -167,9 +168,14 @@ function M._activate_ui()
   -- ! toggles explain mode
   vim.keymap.set("n", "!", function()
     require("skillvim.config").toggle_explain_mode()
-    -- Refresh hints to show new state
     M._show_hints()
   end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] toggle explain" })
+
+  -- ? toggles hint mode (learning)
+  vim.keymap.set("n", "?", function()
+    require("skillvim.config").toggle_hint_mode()
+    M._show_hints()
+  end, { buffer = M._bufnr, nowait = true, desc = "[SKILLVIM] toggle hint" })
 end
 
 -- ────────────────────────────────────────────────────────────
@@ -237,8 +243,11 @@ function M._show_hints()
     { "-- SKILLVIM --  ", "ModeMsg" },
   }
 
-  -- Explain mode indicator
-  if explain_on then
+  -- Mode indicators
+  local hint_on = require("skillvim.config").options.hint_mode
+  if hint_on then
+    table.insert(chunks, { "[hint ON]  ", "DiagnosticWarn" })
+  elseif explain_on then
     table.insert(chunks, { "[explain ON]  ", "DiagnosticInfo" })
   end
 
@@ -257,9 +266,12 @@ function M._show_hints()
     end
   end
 
-  -- Toggle hint
+  -- Toggle hints
   table.insert(chunks, { "!", "WarningMsg" })
-  table.insert(chunks, { ":explain-toggle", "Comment" })
+  table.insert(chunks, { ":explain", "Comment" })
+  table.insert(chunks, { "  ", "" })
+  table.insert(chunks, { "?", "WarningMsg" })
+  table.insert(chunks, { ":hint", "Comment" })
 
   vim.api.nvim_echo(chunks, false, {})
 end

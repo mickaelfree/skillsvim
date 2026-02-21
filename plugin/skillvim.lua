@@ -54,3 +54,10 @@ end, {
   nargs = 0,
   desc = "Toggle explain mode (SKILLVIM: comments on inline edits)",
 })
+
+vim.api.nvim_create_user_command("SkillHintToggle", function()
+  require("skillvim.config").toggle_hint_mode()
+end, {
+  nargs = 0,
+  desc = "Toggle hint mode (HINT: clues without answers, for learning)",
+})
