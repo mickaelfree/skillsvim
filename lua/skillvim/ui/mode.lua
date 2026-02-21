@@ -14,7 +14,7 @@ M.verbs = {
   s = { name = "simplify",    prompt_key = "simplify_instruction",    output = "inline" },
   d = { name = "document",    prompt_key = "document_instruction",    output = "inline" },
   t = { name = "test",        prompt_key = "test_instruction",        output = "float" },
-  e = { name = "explain",     prompt_key = "explain_instruction",     output = "float" },
+  e = { name = "explain",     prompt_key = "explain_inline_instruction", output = "inline" },
   c = { name = "complete",    prompt_key = "complete_instruction",    output = "inline" },
   n = { name = "name",        prompt_key = "name_instruction",        output = "inline" },
   y = { name = "type",        prompt_key = "type_instruction",        output = "inline" },
