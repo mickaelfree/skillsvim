@@ -1,26 +1,61 @@
 # skillvim.nvim
 
-AI-powered Neovim plugin with Vim-native motions and [skills.sh](https://skills.sh/) integration.
+AI-powered Neovim plugin with a dedicated **SKILLVIM mode** and [skills.sh](https://skills.sh/) integration.
 
-Operator-based AI actions that feel like native Vim commands. Select text with any motion, then act with a single key.
+One operator. 25 verbs. Zero friction.
+
+`<leader>s{motion}` → select text → press a verb key → AI acts → accept/reject/retry.
+
+## How it works
+
+```
+<leader>sip        select "inside paragraph"
+                    ── SKILLVIM mode activates ──
+r                   refactor the code
+                    ── AI streams result inline ──
+a                   accept the edit
+```
+
+The mode captures your text, then gives you **25 single-key verbs**. Each letter triggers a specific AI action. The mode blocks all other keys — you're in a dedicated context.
+
+## Verb palette
+
+| Key | Verb | Output | Key | Verb | Output |
+|-----|------|--------|-----|------|--------|
+| `r` | refactor | inline | `n` | name | inline |
+| `o` | optimize | inline | `y` | type | inline |
+| `f` | fix | inline | `l` | lint | inline |
+| `s` | simplify | inline | `m` | modularize | inline |
+| `d` | document | inline | `a` | abstract | inline |
+| `t` | test | float | `h` | harden | inline |
+| `e` | explain | float | `u` | decouple | inline |
+| `c` | complete | inline | `k` | deduplicate | inline |
+| `i` | inline | inline | `g` | generalize | inline |
+| `v` | vectorize | inline | `b` | benchmark | float |
+| `w` | wrap | inline | `x` | extract | inline |
+| `j` | serialize | inline | `p` | prompt (free) | inline |
+| `q` | quit | — | | | |
+
+**inline** = AI replaces code directly in your buffer (with accept/reject/retry).
+**float** = AI response in a floating window (test, explain, benchmark).
 
 ## Features
 
-- **Vim operator motions** — `<leader>se{motion}` to edit, `<leader>sr{motion}` to review, `<leader>sx{motion}` to explain. Double-key (`see`, `srr`, `sxx`) for current line. Works in visual mode too.
-- **Inline edit** — AI replaces code directly in your buffer with indentation matching. Accept/reject/retry inline.
-- **Float responses** — Reviews, explanations, and questions appear in a floating window with copy/apply/retry actions.
-- **Chat** — Persistent split with inline input zone, streaming, code extraction.
-- **Multi-provider** — Anthropic Claude and Groq (Llama) out of the box.
-- **Multi-language** — Built-in locales: English, French, Japanese. Custom locales supported.
-- **Skills ecosystem** — Compatible with 48,000+ skills from the [Agent Skills Directory](https://skills.sh/). Auto-resolution based on prompt, filetype, and project.
-- **Statusline** — Lualine component showing streaming state and token usage.
+- **SKILLVIM mode** — one operator, 25 verbs, all single-key
+- **Vim operator motions** — works with any motion (`ip`, `3j`, `%`, `gg`, etc.) and visual mode
+- **Inline edit** — streaming replacement with indentation matching and a/r/q confirmation
+- **Float responses** — for explanations, tests, benchmarks with copy/apply/retry
+- **Chat** — persistent split with inline input zone
+- **Multi-provider** — Anthropic Claude and Groq (Llama)
+- **Multi-language** — built-in locales: English, French, Japanese
+- **Skills ecosystem** — 48,000+ skills from [skills.sh](https://skills.sh/) with auto-resolution
 
 ## Requirements
 
 - Neovim >= 0.10.0
 - [nui.nvim](https://github.com/MunifTanjim/nui.nvim)
 - `curl` (system)
-- API key: `ANTHROPIC_API_KEY` or `GROQ_API_KEY` environment variable
+- `ANTHROPIC_API_KEY` or `GROQ_API_KEY` environment variable
 
 ## Installation
 
@@ -28,24 +63,22 @@ Operator-based AI actions that feel like native Vim commands. Select text with a
 
 ```lua
 {
-  "mickmart/skillvim.nvim",
+  "mickaelfree/skillsvim",
   dependencies = {
     "MunifTanjim/nui.nvim",
   },
   cmd = { "SkillAsk", "SkillEdit", "SkillChat", "SkillList", "SkillReview", "SkillExplain" },
   keys = {
-    { "<leader>se", desc = "SkillVim Edit" },
-    { "<leader>sr", desc = "SkillVim Review" },
-    { "<leader>sx", desc = "SkillVim Explain" },
+    { "<leader>s", mode = { "n", "v" }, desc = "SKILLVIM mode" },
     { "<leader>sa", desc = "SkillVim Ask" },
     { "<leader>sc", desc = "SkillVim Chat" },
     { "<leader>sl", desc = "SkillVim List" },
   },
   config = function()
     require("skillvim").setup({
-      -- provider = "anthropic",  -- "anthropic" or "groq"
+      -- provider = "anthropic",
       -- model = "claude-sonnet-4-20250514",
-      -- locale = "en",  -- "en", "fr", "ja", or custom table
+      -- locale = "en",
     })
   end,
 }
@@ -63,63 +96,40 @@ require("skillvim").setup({
 
 ## Keymaps
 
-### Operators (normal + visual)
-
-All operators work with any Vim motion. Double the last key for current line (like `dd`, `yy`).
+### SKILLVIM mode (the main interaction)
 
 | Keymap | Mode | Action |
 |--------|------|--------|
-| `<leader>se{motion}` | Normal | Edit code inline (AI replaces in buffer) |
-| `<leader>see` | Normal | Edit current line |
-| `<leader>se` | Visual | Edit selection inline |
-| `<leader>sE{motion}` | Normal | Edit with custom instruction |
-| `<leader>sr{motion}` | Normal | Review code (float) |
-| `<leader>srr` | Normal | Review current line |
-| `<leader>sr` | Visual | Review selection |
-| `<leader>sx{motion}` | Normal | Explain code (float) |
-| `<leader>sxx` | Normal | Explain current line |
-| `<leader>sx` | Visual | Explain selection |
+| `<leader>s{motion}` | Normal | Capture text with motion → enter SKILLVIM mode |
+| `<leader>ss` | Normal | SKILLVIM mode on current line |
+| `<leader>s` | Visual | SKILLVIM mode on selection |
 
-### Utility
+Once in mode, press any verb key from the palette above. Press `q` or `<Esc>` to cancel.
 
-| Keymap | Action |
-|--------|--------|
-| `<leader>sa` | Ask (command line) |
-| `<leader>sc` | Toggle chat |
-| `<leader>ss` | Focus chat input |
-| `<leader>sl` | List skills |
-
-### Inline edit confirmation
-
-After an inline edit, the new code is highlighted and you can:
+### After inline edit
 
 | Key | Action |
 |-----|--------|
 | `a` | Accept the edit |
 | `r` | Retry (different approach) |
-| `q` / `Esc` | Reject (restore original) |
+| `q` / `<Esc>` | Reject (restore original) |
 
-### Float window actions
+### After float response
 
 | Key | Action |
 |-----|--------|
-| `y` | Copy last code block to clipboard |
+| `y` | Copy last code block |
 | `a` | Apply code to original selection |
-| `r` | Retry with different approach |
-| `q` / `Esc` | Close |
+| `r` | Retry |
+| `q` / `<Esc>` | Close |
 
-### Chat keybindings
+### Utility keymaps
 
-| Key | Action |
-|-----|--------|
-| `<CR>` | Send message (in input zone) |
-| `<S-CR>` / `<C-j>` | New line in input |
-| `i` | Focus input zone |
-| `<leader>y` | Copy last code block |
-| `<leader>a` | Apply last code block |
-| `r` | Retry last response |
-| `q` | Close chat |
-| `<C-c>` | Cancel streaming |
+| Keymap | Action |
+|--------|--------|
+| `<leader>sa` | Ask (command line) |
+| `<leader>sc` | Toggle chat |
+| `<leader>sl` | List skills |
 
 ## Commands
 
@@ -157,14 +167,10 @@ require("skillvim").setup({
 
   keymaps = {
     enabled = true,
+    prefix = "<leader>s",
     ask = "<leader>sa",
-    edit = "<leader>se",
-    edit_custom = "<leader>sE",
     chat = "<leader>sc",
-    chat_focus = "<leader>ss",
     list = "<leader>sl",
-    review = "<leader>sr",
-    explain = "<leader>sx",
   },
 })
 ```
@@ -175,10 +181,9 @@ require("skillvim").setup({
 require("skillvim").setup({
   locale = {
     system_prompt = "You are a coding assistant.",
-    edit_instruction = "Improve this code. Return only code.",
-    review_instruction = "Review this code.",
-    explain_instruction = "Explain this code.",
-    retry_instruction = "Try a different approach.",
+    refactor_instruction = "Refactor this code. Return only code.",
+    fix_instruction = "Fix this code. Return only code.",
+    -- ... override any verb instruction
   },
 })
 ```
@@ -186,7 +191,6 @@ require("skillvim").setup({
 ## Statusline
 
 ```lua
--- lualine
 require("lualine").setup({
   sections = {
     lualine_x = {
@@ -199,26 +203,9 @@ require("lualine").setup({
 ## Install Skills
 
 ```bash
-# Install a skill globally
-npx skills add owner/repo -a skillvim -g
-
-# Install for current project
-npx skills add owner/repo -a skillvim
-
-# Search for skills
-npx skills find "react typescript"
-```
-
-Skills follow the [Agent Skills Specification](https://skills.sh/). Each skill is a directory with a `SKILL.md`:
-
-```yaml
----
-name: my-skill
-description: "When to activate this skill"
----
-
-# Instructions for the AI
-...
+npx skills add owner/repo -a skillvim -g    # global
+npx skills add owner/repo -a skillvim       # project
+npx skills find "react typescript"          # search
 ```
 
 ## License
